@@ -11,6 +11,7 @@ support.requires(
         'test requires loads of disk-space bytes and a long time to run'
     )
 
+import io
 import zipfile, os, unittest
 import time
 import sys
@@ -81,6 +82,35 @@ class TestsWithSourceFile(unittest.TestCase):
             self.zipTest(f, zipfile.ZIP_DEFLATED)
             self.assertFalse(f.closed)
         self.zipTest(TESTFN2, zipfile.ZIP_DEFLATED)
+
+    def test_stream_one_big_file(self):
+
+        class FakeWriter:
+            """FakeWriter doesn't write anywhere real and is not seekable."""
+            def write(self, b):
+                return len(b)
+
+            def close(self):
+                pass
+
+            def flush(self):
+                return b''
+
+        def make_big_file(force_zip64):
+            with zipfile.ZipFile(FakeWriter(), 'w') as zf:
+                with zf.open('test.txt', 'w', force_zip64=force_zip64) as zfin:
+                    written_mb = 0
+                    write_size_mb = 4
+                    required_atleast_mb = 2048
+                    while written_mb < required_atleast_mb:
+                        zfin.write(b'0' * write_size_mb * 1024 * 1024)
+                        written_mb += write_size_mb
+
+        with self.assertRaises(RuntimeError):
+            make_big_file(force_zip64=False)
+
+        # no errors
+        make_big_file(force_zip64=True)
 
     def tearDown(self):
         for fname in TESTFN, TESTFN2:
