@@ -694,7 +694,10 @@ class ElementTree:
                                is added if encoding IS NOT either of:
                                US-ASCII, UTF-8, or Unicode
 
-          *default_namespace* -- sets the default XML namespace (for "xmlns")
+          *default_namespace* -- sets the default XML namespace (for "xmlns").
+                                 This option takes precedence over a default
+                                 namespace registered using
+                                 register_namespace().
 
           *method* -- either "xml" (default), "html, "text", or "c14n"
 
@@ -859,7 +862,7 @@ def _namespaces(elem, default_namespace=None):
                 prefix = uri_to_prefix.get(uri_and_name[0])
                 if prefix is None:
                     prefix = _namespace_map.get(uri_and_name[0])
-                    if prefix is None:
+                    if prefix is None or prefix in nsmap:
                         prefix = _make_new_ns_prefix(nsmap, global_prefixes)
                     if prefix or is_el:
                         nsmap[prefix] = uri_and_name[0]
@@ -897,7 +900,7 @@ def _namespaces(elem, default_namespace=None):
         except TypeError:
             _raise_serialization_error(qname)
 
-    if default_namespace is not None and has_unqual_el:
+    if "" in nsmap and has_unqual_el:
         # FIXME: can this be handled in XML 1.0?
         raise ValueError(
             "cannot use non-qualified names with default_namespace option"
