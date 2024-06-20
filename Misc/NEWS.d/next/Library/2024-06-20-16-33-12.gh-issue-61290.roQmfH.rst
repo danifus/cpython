@@ -1,0 +1,5 @@
+When the ``default_namespace`` keyword is provided to
+:func:`xml.etree.ElementTree.write`, it no longer raises errors about
+unqualified attribute names and ensures a prefix is retained when an
+attribute is qualified by the ``default_namespace``. This is inline with the
+xml spec https://www.w3.org/TR/xml-names/#defaulting

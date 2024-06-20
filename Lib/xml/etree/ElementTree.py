@@ -724,9 +724,9 @@ class ElementTree:
             if method == "text":
                 _serialize_text(write, self._root)
             else:
-                qnames, namespaces = _namespaces(self._root, default_namespace)
+                qnames, nsmap = _namespaces(self._root, default_namespace)
                 serialize = _serialize[method]
-                serialize(write, self._root, qnames, namespaces,
+                serialize(write, self._root, qnames, nsmap,
                           short_empty_elements=short_empty_elements)
 
     def write_c14n(self, file):
@@ -787,84 +787,113 @@ def _get_writer(file_or_filename, encoding):
                 yield file.write, encoding
 
 
-def _make_new_ns_prefix(nsmap_scope, seen_prefixes):
+def _make_new_ns_prefix(nsmap_scope, global_prefixes):
     i = len(nsmap_scope)
     while True:
         prefix = f"ns{i}"
-        if prefix not in seen_prefixes:
+        if (
+            prefix not in nsmap_scope
+            and prefix not in global_prefixes
+        ):
             return prefix
         i += 1
 
 
 def _qnames_iter(elem):
     """Iterate through all the qualified names in elem"""
-    seen_qnames = set()
+    seen_el_qnames = set()
+    seen_other_qnames = set()
     for elem in elem.iter():
         tag = elem.tag
         if isinstance(tag, str):
-            if tag not in seen_qnames:
-                seen_qnames.add(tag)
-                yield tag
+            if tag not in seen_el_qnames:
+                seen_el_qnames.add(tag)
+                yield tag, True
         elif isinstance(tag, QName):
             tag = tag.text
-            if tag not in seen_qnames:
-                seen_qnames.add(tag)
-                yield tag
+            if tag not in seen_el_qnames:
+                seen_el_qnames.add(tag)
+                yield tag, True
         elif tag is not None and tag is not Comment and tag is not PI:
             _raise_serialization_error(tag)
 
         for key, value in elem.items():
             if isinstance(key, QName):
                 key = key.text
-            if key not in seen_qnames:
-                seen_qnames.add(key)
-                yield key
+            if key not in seen_other_qnames:
+                seen_other_qnames.add(key)
+                yield key, False
 
             if isinstance(value, QName):
-                if value.text not in seen_qnames:
-                    seen_qnames.add(value.text)
-                    yield value.text
+                if value.text not in seen_other_qnames:
+                    seen_other_qnames.add(value.text)
+                    yield value.text, False
 
         text = elem.text
         if isinstance(text, QName):
-            if text.text not in seen_qnames:
-                seen_qnames.add(text.text)
-                yield text.text
+            if text.text not in seen_other_qnames:
+                seen_other_qnames.add(text.text)
+                yield text.text, False
 
 
 def _namespaces(elem, default_namespace=None):
     # identify namespaces used in this tree
 
-    # maps qnames to *encoded* prefix:local names
-    qnames = {None: None}
+    qnames = {None: (None, None)}
 
-    # maps uri:s to prefixes
-    namespaces = {}
+    nsmap = {}
+    uri_to_prefix = {}
+    default_namespace_attr_prefix = None
     if default_namespace:
-        namespaces[default_namespace] = ""
+        nsmap[""] = default_namespace
+        uri_to_prefix[default_namespace] = ""
 
-    seen_prefixes = set(_namespace_map.values())
+    global_prefixes = set(_namespace_map.values())
     has_unqual_el = False
-    for qname in _qnames_iter(elem):
+    default_namespace_attr_prefix = None
+    for qname, is_el in _qnames_iter(elem):
         try:
             if qname[:1] == "{":
                 uri_and_name = qname[1:].rsplit("}", 1)
 
-                prefix = namespaces.get(uri_and_name[0])
+                prefix = uri_to_prefix.get(uri_and_name[0])
                 if prefix is None:
                     prefix = _namespace_map.get(uri_and_name[0])
                     if prefix is None:
-                        prefix = _make_new_ns_prefix(namespaces, seen_prefixes)
-                    seen_prefixes.add(prefix)
-                    namespaces[uri_and_name[0]] = prefix
+                        prefix = _make_new_ns_prefix(nsmap, global_prefixes)
+                    if prefix or is_el:
+                        nsmap[prefix] = uri_and_name[0]
+                        uri_to_prefix[uri_and_name[0]] = prefix
+
+                if not is_el and not prefix and not default_namespace_attr_prefix:
+                    # Find the alternative prefix to use with non-element
+                    # names
+                    default_namespace_attr_prefix = _namespace_map.get(uri_and_name[0])
+                    if not default_namespace_attr_prefix:
+                        # if default_namespace_attr_prefix == "" or None
+                        default_namespace_attr_prefix = _make_new_ns_prefix(nsmap, global_prefixes)
+                    nsmap[default_namespace_attr_prefix] = uri_and_name[0]
+                    # Don't add this uri to prefix mapping as it might override
+                    # the uri -> "" default mapping. We'll fix this up at the
+                    # end of the fn.
+                    # uri_to_prefix[uri_and_name[0]] = default_namespace_attr_prefix
 
                 if prefix:
-                    qnames[qname] = f"{prefix}:{uri_and_name[1]}"
+                    name = f"{prefix}:{uri_and_name[1]}"
+                    qnames[qname] = (name, name)
                 else:
-                    qnames[qname] = uri_and_name[1]  # default element
+                    # default_namespace_attr_prefix may not be defined yet but
+                    # this bad entry will be replaced if an attribute that
+                    # requires default_namespace_attr_prefix is found later.
+                    qnames[qname] = (
+                        uri_and_name[1],  # default element
+                        f"{default_namespace_attr_prefix}:{uri_and_name[1]}", # non-element qname
+                    )
             else:
-                qnames[qname] = qname
-                has_unqual_el = True
+                # Unqualified qname
+                qnames[qname] = (qname, qname)
+                if is_el:
+                    has_unqual_el = True
         except TypeError:
             _raise_serialization_error(qname)
 
@@ -874,14 +903,13 @@ def _namespaces(elem, default_namespace=None):
             "cannot use non-qualified names with default_namespace option"
         )
 
-    # This namespace doesn't need to be declared but may be used to prefix
-    # names so let's remove it if it has been used
-    if "http://www.w3.org/XML/1998/namespace" in namespaces:
-        del namespaces["http://www.w3.org/XML/1998/namespace"]
-    return qnames, namespaces
+    # The xml prefix doesn't need to be declared but may have been used to
+    # prefix names. Let's remove it if it has been used
+    if "xml" in nsmap:
+        del nsmap["xml"]
+    return qnames, nsmap
 
-
-def _serialize_xml(write, elem, qnames, namespaces,
+def _serialize_xml(write, elem, qnames, nsmap,
                    short_empty_elements, **kwargs):
     tag = elem.tag
     text = elem.text
@@ -890,7 +918,7 @@ def _serialize_xml(write, elem, qnames, namespaces,
     elif tag is ProcessingInstruction:
         write("<?%s?>" % text)
     else:
-        tag = qnames[tag]
+        tag = qnames[tag][0]
         if tag is None:
             if text:
                 write(_escape_cdata(text))
@@ -900,10 +928,9 @@ def _serialize_xml(write, elem, qnames, namespaces,
         else:
             write("<" + tag)
             items = list(elem.items())
-            if items or namespaces:
-                if namespaces:
-                    for v, k in sorted(namespaces.items(),
-                                       key=lambda x: x[1]):  # sort on prefix
+            if items or nsmap:
+                if nsmap:
+                    for k, v in sorted(nsmap.items()):
                         if k:
                             k = ":" + k
                         write(" xmlns%s=\"%s\"" % (
@@ -914,10 +941,10 @@ def _serialize_xml(write, elem, qnames, namespaces,
                     if isinstance(k, QName):
                         k = k.text
                     if isinstance(v, QName):
-                        v = qnames[v.text]
+                        v = qnames[v.text][1]
                     else:
                         v = _escape_attrib(v)
-                    write(" %s=\"%s\"" % (qnames[k], v))
+                    write(" %s=\"%s\"" % (qnames[k][1], v))
             if text or len(elem) or not short_empty_elements:
                 write(">")
                 if text:
@@ -935,7 +962,7 @@ HTML_EMPTY = {"area", "base", "basefont", "br", "col", "embed", "frame", "hr",
               "img", "input", "isindex", "link", "meta", "param", "source",
               "track", "wbr"}
 
-def _serialize_html(write, elem, qnames, namespaces, **kwargs):
+def _serialize_html(write, elem, qnames, nsmap, **kwargs):
     tag = elem.tag
     text = elem.text
     if tag is Comment:
@@ -943,7 +970,7 @@ def _serialize_html(write, elem, qnames, namespaces, **kwargs):
     elif tag is ProcessingInstruction:
         write("<?%s?>" % _escape_cdata(text))
     else:
-        tag = qnames[tag]
+        tag = qnames[tag][0]
         if tag is None:
             if text:
                 write(_escape_cdata(text))
@@ -952,10 +979,9 @@ def _serialize_html(write, elem, qnames, namespaces, **kwargs):
         else:
             write("<" + tag)
             items = list(elem.items())
-            if items or namespaces:
-                if namespaces:
-                    for v, k in sorted(namespaces.items(),
-                                       key=lambda x: x[1]):  # sort on prefix
+            if items or nsmap:
+                if nsmap:
+                    for k, v in sorted(nsmap.items()):
                         if k:
                             k = ":" + k
                         write(" xmlns%s=\"%s\"" % (
@@ -966,11 +992,11 @@ def _serialize_html(write, elem, qnames, namespaces, **kwargs):
                     if isinstance(k, QName):
                         k = k.text
                     if isinstance(v, QName):
-                        v = qnames[v.text]
+                        v = qnames[v.text][1]
                     else:
                         v = _escape_attrib_html(v)
                     # FIXME: handle boolean attributes
-                    write(" %s=\"%s\"" % (qnames[k], v))
+                    write(" %s=\"%s\"" % (qnames[k][1], v))
             write(">")
             ltag = tag.lower()
             if text:
