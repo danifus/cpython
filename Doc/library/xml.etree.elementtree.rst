@@ -704,7 +704,7 @@ Functions
 
 .. function:: tostring(element, encoding="us-ascii", method="xml", *, \
                        xml_declaration=None, default_namespace=None, \
-                       short_empty_elements=True)
+                       short_empty_elements=True, nsmap=None)
 
    Generates a string representation of an XML element, including all
    subelements.  *element* is an :class:`Element` instance.  *encoding* [1]_ is
@@ -725,10 +725,13 @@ Functions
       The :func:`tostring` function now preserves the attribute order
       specified by the user.
 
+   .. versionchanged:: 3.14
+      Added the *nsmap* parameter.
+
 
 .. function:: tostringlist(element, encoding="us-ascii", method="xml", *, \
                            xml_declaration=None, default_namespace=None, \
-                           short_empty_elements=True)
+                           short_empty_elements=True, nsmap=None)
 
    Generates a string representation of an XML element, including all
    subelements.  *element* is an :class:`Element` instance.  *encoding* [1]_ is
@@ -751,6 +754,9 @@ Functions
    .. versionchanged:: 3.8
       The :func:`tostringlist` function now preserves the attribute order
       specified by the user.
+
+   .. versionchanged:: 3.14
+      Added the *nsmap* parameter.
 
 
 .. function:: XML(text, parser=None)
@@ -1172,7 +1178,7 @@ ElementTree Objects
 
    .. method:: write(file, encoding="us-ascii", xml_declaration=None, \
                      default_namespace=None, method="xml", *, \
-                     short_empty_elements=True)
+                     short_empty_elements=True, nsmap=None)
 
       Writes the element tree to a file, as XML.  *file* is a file name, or a
       :term:`file object` opened for writing.  *encoding* [1]_ is the output
@@ -1189,6 +1195,12 @@ ElementTree Objects
       of elements that contain no content.  If ``True`` (the default), they are
       emitted as a single self-closed tag, otherwise they are emitted as a pair
       of start/end tags.
+      The keyword-only *nsmap* parameter is a mapping of namespace prefixes to
+      namespace uris. These prefixes take precedence over namespaces registered
+      using :func:`register_namespace`. If provided, the *default_namespace*
+      argument takes precedence over a default prefix (``""``) supplied in
+      *nsmap*. All supplied entries will be declared in the root element
+      (unless replaced by the *default_namespace* argument).
 
       The output is either a string (:class:`str`) or binary (:class:`bytes`).
       This is controlled by the *encoding* argument.  If *encoding* is
@@ -1203,6 +1215,9 @@ ElementTree Objects
       .. versionchanged:: 3.8
          The :meth:`write` method now preserves the attribute order specified
          by the user.
+
+      .. versionchanged:: 3.14
+         Added the *nsmap* parameter.
 
 
 This is the XML file that is going to be manipulated::

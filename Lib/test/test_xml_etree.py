@@ -1026,6 +1026,105 @@ class ElementTreeTest(ElementTestCase, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, EXPECTED_MSG):
             ET.tostring(elem, encoding='unicode', default_namespace='foobar')
 
+    def test_tostring_nsmap(self):
+        elem = ET.XML('<body xmlns="http://effbot.org/ns" xmlns:foo="bar"><foo:tag/></body>')
+        self.assertEqual(
+            ET.tostring(elem, encoding='unicode'),
+            '<ns0:body xmlns:ns0="http://effbot.org/ns" xmlns:ns1="bar"><ns1:tag /></ns0:body>'
+        )
+        self.assertEqual(
+            ET.tostring(
+                elem,
+                encoding='unicode',
+                nsmap={
+                    "": 'http://effbot.org/ns',
+                    "foo": "bar",
+                    "unused": "nothing",
+                },
+            ),
+            '<body xmlns="http://effbot.org/ns" xmlns:foo="bar" xmlns:unused="nothing">'
+            '<foo:tag /></body>'
+        )
+
+    def test_tostring_nsmap_default_namespace(self):
+        elem = ET.XML('<body xmlns="http://effbot.org/ns"><tag/></body>')
+        self.assertEqual(
+            ET.tostring(elem, encoding='unicode'),
+            '<ns0:body xmlns:ns0="http://effbot.org/ns"><ns0:tag /></ns0:body>'
+        )
+        self.assertEqual(
+            ET.tostring(
+                elem,
+                encoding='unicode',
+                nsmap={"": 'http://effbot.org/ns'},
+            ),
+            '<body xmlns="http://effbot.org/ns"><tag /></body>'
+        )
+
+    def test_tostring_nsmap_default_namespace_overrides(self):
+        elem = ET.XML('<body xmlns="http://effbot.org/ns"><tag/></body>')
+        self.assertEqual(
+            ET.tostring(
+                elem,
+                encoding='unicode',
+                default_namespace="other",
+                nsmap={"": 'http://effbot.org/ns'},
+            ),
+            '<ns1:body xmlns="other" xmlns:ns1="http://effbot.org/ns">'
+            '<ns1:tag />'
+            '</ns1:body>'
+        )
+        self.assertEqual(
+            ET.tostring(
+                elem,
+                encoding='unicode',
+                default_namespace='http://effbot.org/ns',
+                nsmap={"": 'other'},
+            ),
+            '<body xmlns="http://effbot.org/ns"><tag /></body>'
+        )
+
+    def test_tostring_nsmap_default_namespace_attr(self):
+        reg_name = "gh57587"
+        namespace = "ns_gh57587"
+        elem = ET.XML(
+            f'<body xmlns="{namespace}" xmlns:foo="{namespace}" foo:status="good">'
+            '<tag/></body>'
+        )
+        self.assertEqual(
+            ET.tostring(elem, encoding='unicode'),
+            f'<ns0:body xmlns:ns0="{namespace}" ns0:status="good"><ns0:tag /></ns0:body>'
+        )
+        ET.register_namespace(reg_name, namespace)
+        self.assertEqual(
+            ET.tostring(
+                elem,
+                encoding='unicode',
+                nsmap={
+                    "": namespace,
+                    "foo": namespace,
+                },
+            ),
+            f'<body xmlns="{namespace}" xmlns:foo="{namespace}" foo:status="good">'
+            '<tag /></body>'
+        )
+        # default attr gets name from global registered namespaces
+        self.assertEqual(
+            ET.tostring(
+                elem,
+                encoding='unicode',
+                nsmap={"": namespace},
+            ),
+            f'<body xmlns="{namespace}" xmlns:{reg_name}="{namespace}" {reg_name}:status="good">'
+            '<tag /></body>'
+        )
+
+    def test_tostring_nsmap_default_namespace_original_no_namespace(self):
+        elem = ET.XML('<body><tag/></body>')
+        EXPECTED_MSG = '^cannot use non-qualified names with default_namespace option$'
+        with self.assertRaisesRegex(ValueError, EXPECTED_MSG):
+            ET.tostring(elem, encoding='unicode', nsmap={"": "foobar"})
+
     def test_tostring_no_xml_declaration(self):
         elem = ET.XML('<body><tag/></body>')
         self.assertEqual(
@@ -1099,6 +1198,23 @@ class ElementTreeTest(ElementTestCase, unittest.TestCase):
         )
         self.assertEqual(
             ''.join(ET.tostringlist(elem, encoding='unicode', default_namespace='http://effbot.org/ns')),
+            '<body xmlns="http://effbot.org/ns"><tag /></body>'
+        )
+
+    def test_tostringlist_nsmap_default_namespace(self):
+        elem = ET.XML('<body xmlns="http://effbot.org/ns"><tag/></body>')
+        self.assertEqual(
+            ''.join(ET.tostringlist(elem, encoding='unicode')),
+            '<ns0:body xmlns:ns0="http://effbot.org/ns"><ns0:tag /></ns0:body>'
+        )
+        self.assertEqual(
+            "".join(
+                ET.tostringlist(
+                    elem,
+                    encoding='unicode',
+                    nsmap={"": 'http://effbot.org/ns'},
+                )
+            ),
             '<body xmlns="http://effbot.org/ns"><tag /></body>'
         )
 

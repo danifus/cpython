@@ -681,7 +681,8 @@ class ElementTree:
               xml_declaration=None,
               default_namespace=None,
               method=None, *,
-              short_empty_elements=True):
+              short_empty_elements=True,
+              nsmap=None):
         """Write element tree to a file as XML.
 
         Arguments:
@@ -696,7 +697,7 @@ class ElementTree:
 
           *default_namespace* -- sets the default XML namespace (for "xmlns").
                                  This option takes precedence over a default
-                                 namespace registered using
+                                 namespace in nsmap or registered using
                                  register_namespace().
 
           *method* -- either "xml" (default), "html, "text", or "c14n"
@@ -706,6 +707,14 @@ class ElementTree:
                                     they are emitted as a single self-closed
                                     tag, otherwise they are emitted as a pair
                                     of start/end tags
+
+          *nsmap* -- a mapping of namespace prefixes to namespace uris. These
+                     prefixes take precedence over namespaces registered using
+                     register_namespace(). If provided, the default_namespace
+                     argument takes precedence over a default prefix ("")
+                     supplied in nsmap. All supplied entries will be declared
+                     in the root element (unless the "" prefix has been
+                     replaced by the default_namespace argument).
 
         """
         if not method:
@@ -727,7 +736,11 @@ class ElementTree:
             if method == "text":
                 _serialize_text(write, self._root)
             else:
-                qnames, nsmap = _namespaces(self._root, default_namespace)
+                qnames, nsmap = _namespaces(
+                    self._root,
+                    default_namespace,
+                    nsmap,
+                )
                 serialize = _serialize[method]
                 serialize(write, self._root, qnames, nsmap,
                           short_empty_elements=short_empty_elements)
@@ -802,6 +815,25 @@ def _make_new_ns_prefix(nsmap_scope, global_prefixes):
         i += 1
 
 
+def _find_default_namespace_attr_prefix(
+    default_namespace,
+    nsmap,
+    global_prefixes,
+):
+    # Search the provided nsmap for any prefixes for this uri that aren't the
+    # default namespace ""
+    for prefix, uri in nsmap.items():
+        if uri == default_namespace and prefix != "":
+            return prefix
+
+    # _namespace_map is a 1:1 mapping of uri -> prefix
+    prefix = _namespace_map.get(default_namespace)
+    if prefix and prefix not in nsmap:
+        return prefix
+
+    return _make_new_ns_prefix(nsmap, global_prefixes)
+
+
 def _qnames_iter(elem):
     """Iterate through all the qualified names in elem"""
     seen_el_qnames = set()
@@ -839,17 +871,25 @@ def _qnames_iter(elem):
                 yield text.text, False
 
 
-def _namespaces(elem, default_namespace=None):
+def _namespaces(elem, default_namespace=None, nsmap=None):
     # identify namespaces used in this tree
 
     qnames = {None: (None, None)}
 
-    nsmap = {}
-    uri_to_prefix = {}
-    default_namespace_attr_prefix = None
-    if default_namespace:
+    if nsmap is None:
+        nsmap = {}
+    else:
+        nsmap = nsmap.copy()
+
+    if default_namespace is not None:
         nsmap[""] = default_namespace
-        uri_to_prefix[default_namespace] = ""
+
+    # Multiple prefixes may be present for a single uri. This will select the
+    # last prefix found in nsmap for a given uri.
+    uri_to_prefix = {uri: prefix for prefix, uri in nsmap.items()}
+    if "" in nsmap:
+        # but we make sure the default prefix always take precedence
+        uri_to_prefix[nsmap[""]] = ""
 
     global_prefixes = set(_namespace_map.values())
     has_unqual_el = False
@@ -871,10 +911,11 @@ def _namespaces(elem, default_namespace=None):
                 if not is_el and not prefix and not default_namespace_attr_prefix:
                     # Find the alternative prefix to use with non-element
                     # names
-                    default_namespace_attr_prefix = _namespace_map.get(uri_and_name[0])
-                    if not default_namespace_attr_prefix:
-                        # if default_namespace_attr_prefix == "" or None
-                        default_namespace_attr_prefix = _make_new_ns_prefix(nsmap, global_prefixes)
+                    default_namespace_attr_prefix = _find_default_namespace_attr_prefix(
+                        uri_and_name[0],
+                        nsmap,
+                        global_prefixes,
+                    )
                     nsmap[default_namespace_attr_prefix] = uri_and_name[0]
                     # Don't add this uri to prefix mapping as it might override
                     # the uri -> "" default mapping. We'll fix this up at the
@@ -1129,7 +1170,7 @@ def _escape_attrib_html(text):
 
 def tostring(element, encoding=None, method=None, *,
              xml_declaration=None, default_namespace=None,
-             short_empty_elements=True):
+             short_empty_elements=True, nsmap=None):
     """Generate string representation of XML element.
 
     All subelements are included.  If encoding is "unicode", a string
@@ -1138,7 +1179,8 @@ def tostring(element, encoding=None, method=None, *,
     *element* is an Element instance, *encoding* is an optional output
     encoding defaulting to US-ASCII, *method* is an optional output which can
     be one of "xml" (default), "html", "text" or "c14n", *default_namespace*
-    sets the default XML namespace (for "xmlns").
+    sets the default XML namespace (for "xmlns"). *nsmap* is a mapping of
+    prefixes to namespaces.
 
     Returns an (optionally) encoded string containing the XML data.
 
@@ -1148,7 +1190,8 @@ def tostring(element, encoding=None, method=None, *,
                                xml_declaration=xml_declaration,
                                default_namespace=default_namespace,
                                method=method,
-                               short_empty_elements=short_empty_elements)
+                               short_empty_elements=short_empty_elements,
+                               nsmap=nsmap)
     return stream.getvalue()
 
 class _ListDataStream(io.BufferedIOBase):
@@ -1170,14 +1213,15 @@ class _ListDataStream(io.BufferedIOBase):
 
 def tostringlist(element, encoding=None, method=None, *,
                  xml_declaration=None, default_namespace=None,
-                 short_empty_elements=True):
+                 short_empty_elements=True, nsmap=None):
     lst = []
     stream = _ListDataStream(lst)
     ElementTree(element).write(stream, encoding,
                                xml_declaration=xml_declaration,
                                default_namespace=default_namespace,
                                method=method,
-                               short_empty_elements=short_empty_elements)
+                               short_empty_elements=short_empty_elements,
+                               nsmap=nsmap)
     return lst
 
 
