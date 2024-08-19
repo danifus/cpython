@@ -736,6 +736,11 @@ class ElementTree:
             if method == "text":
                 _serialize_text(write, self._root)
             else:
+                if nsmap and None in nsmap:
+                    raise ValueError(
+                        'Found None as a namespace prefix. Use "" as the default namespace prefix.'
+                    )
+
                 qnames, nsmap = _namespaces(
                     self._root,
                     default_namespace,

@@ -1119,6 +1119,13 @@ class ElementTreeTest(ElementTestCase, unittest.TestCase):
             '<tag /></body>'
         )
 
+    def test_tostring_nsmap_default_namespace_none(self):
+        elem = ET.XML('<body xmlns="foobar"><tag/></body>')
+        expected_msg = '^Found None as a namespace prefix. Use "" as the default namespace prefix.$'
+
+        with self.assertRaisesRegex(ValueError, expected_msg):
+            ET.tostring(elem, encoding='unicode', nsmap={None: "foobar"})
+
     def test_tostring_nsmap_default_namespace_original_no_namespace(self):
         elem = ET.XML('<body><tag/></body>')
         EXPECTED_MSG = '^cannot use non-qualified names with default_namespace option$'
